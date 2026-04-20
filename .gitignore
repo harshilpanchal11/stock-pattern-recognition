@@ -1,0 +1,10 @@
+models/*.pth
+models/*.pt
+data/raw/
+data/charts/
+data/external/
+__pycache__/
+.DS_Store
+*.pyc
+.env
+.ipynb_checkpoints/

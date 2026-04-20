@@ -1,0 +1,16 @@
+yfinance>=0.2.40
+mplfinance>=0.12.10b0
+pandas>=2.0.0
+pyarrow>=14.0.0
+torch>=2.1.0
+torchvision>=0.16.0
+ultralytics>=8.0.0
+Pillow>=10.0.0
+scikit-learn>=1.3.0
+matplotlib>=3.7.0
+seaborn>=0.12.0
+streamlit>=1.30.0
+plotly>=5.18.0
+tqdm>=4.66.0
+albumentations>=1.3.0
+huggingface_hub>=0.20.0
