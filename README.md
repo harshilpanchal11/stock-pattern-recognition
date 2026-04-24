@@ -193,4 +193,4 @@ stock-pattern-recognition/
 ---
 
 *Group 3 — Images in Finance — Spring 2026*
-*⚠️ For educational purposes only. Not financial advice.*
+*⚠️educational purposes only. Not financial advice.*
