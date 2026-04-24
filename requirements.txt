@@ -1,16 +1,22 @@
-yfinance>=0.2.40
-mplfinance>=0.12.10b0
-pandas>=2.0.0
-pyarrow>=14.0.0
-torch>=2.1.0
-torchvision>=0.16.0
-ultralytics>=8.0.0
-Pillow>=10.0.0
-scikit-learn>=1.3.0
-matplotlib>=3.7.0
-seaborn>=0.12.0
-streamlit>=1.30.0
-plotly>=5.18.0
-tqdm>=4.66.0
-albumentations>=1.3.0
-huggingface_hub>=0.20.0
+# Pinned for reproducibility on macOS (Apple Silicon), Linux and CUDA.
+# Tested baseline: Python 3.11.  PyTorch 2.2 is the last known-stable
+# version for MPS at the time of writing.
+yfinance==1.3.0
+mplfinance==0.12.10b0
+pandas==2.2.2
+pyarrow==15.0.2
+numpy==1.26.4
+torch==2.2.2
+torchvision==0.17.2
+ultralytics==8.1.34
+Pillow==10.3.0
+scikit-learn==1.4.2
+matplotlib==3.8.4
+seaborn==0.13.2
+streamlit==1.33.0
+plotly==5.20.0
+tqdm==4.66.2
+albumentations==1.4.3
+huggingface_hub==0.23.0
+datasets==2.19.0
+kaggle==1.6.12

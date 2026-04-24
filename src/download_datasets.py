@@ -27,23 +27,11 @@ def download_huggingface():
         from huggingface_hub import snapshot_download
         path = snapshot_download(
             repo_id="foduucom/stockmarket-pattern-detection-yolov8",
-            repo_type="dataset",
+            repo_type="model",
             local_dir=str(EXT_DIR / "hf_yolov8"),
             ignore_patterns=["*.git*", "*.md"]
         )
         print(f"  ✓ Saved to: {path}")
-        return True
-    except ImportError:
-        print("  Installing huggingface_hub...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install",
-                                "huggingface_hub", "-q",
-                                "--break-system-packages"])
-        from huggingface_hub import snapshot_download
-        snapshot_download(
-            repo_id="foduucom/stockmarket-pattern-detection-yolov8",
-            repo_type="dataset",
-            local_dir=str(EXT_DIR / "hf_yolov8")
-        )
         return True
     except Exception as e:
         print(f"  ERROR: {e}")
@@ -59,7 +47,7 @@ def download_yolov8_model():
         from huggingface_hub import hf_hub_download
         path = hf_hub_download(
             repo_id="foduucom/stockmarket-pattern-detection-yolov8",
-            filename="best.pt",
+            filename="model.pt",
             repo_type="model",
             local_dir=str(models_dir)
         )
@@ -80,7 +68,7 @@ def download_kaggle():
         out_dir.mkdir(exist_ok=True)
         subprocess.run([
             "kaggle", "datasets", "download",
-            "-d", "mahmoudnagytarek/stock-chart-patterns",
+            "-d", "mustaphaelbakai/stock-chart-patterns",
             "--unzip", "-p", str(out_dir)
         ], check=True)
         print(f"  ✓ Saved to: {out_dir}")

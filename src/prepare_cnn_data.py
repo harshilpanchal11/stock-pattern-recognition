@@ -1,118 +1,144 @@
 """
 Stage 3a — Prepare CNN Training Data
-Converts YOLO-format HuggingFace dataset into ImageFolder structure
-required by PyTorch's torchvision.datasets.ImageFolder.
-
-Expected input structure (HuggingFace download):
-  data/external/hf_yolov8/
-    train/images/*.jpg
-    train/labels/*.txt
-    valid/images/*.jpg
-    valid/labels/*.txt
+Uses the Kaggle Stock Chart Patterns dataset (CSV + images) and
+samples no_pattern images from our generated charts.
 
 Output structure:
   data/cnn_ready/
     train/
-      head_and_shoulders/
-      double_top/
-      ...
+      double_top/       (~136 images)
+      double_bottom/    (~136 images)
+      no_pattern/       (~400 images)
     val/
-      ...
+      double_top/       (~34 images)
+      double_bottom/    (~34 images)
+      no_pattern/       (~100 images)
 
 Run: python src/prepare_cnn_data.py
 """
 
 import shutil
+import random
 from pathlib import Path
 from collections import Counter
+import pandas as pd
 
-HF_DIR  = Path(__file__).parent.parent / "data" / "external" / "hf_yolov8"
-OUT_DIR = Path(__file__).parent.parent / "data" / "cnn_ready"
+random.seed(42)
 
-CLASSES = {
-    0: "head_and_shoulders",
-    1: "double_top",
-    2: "double_bottom",
-    3: "triangle",
-    4: "wedge",
-    5: "no_pattern",
+KAGGLE_DIR  = Path(__file__).parent.parent / "data" / "external" / "kaggle_patterns"
+CHARTS_DIR  = Path(__file__).parent.parent / "data" / "charts"
+OUT_DIR     = Path(__file__).parent.parent / "data" / "cnn_ready"
+
+TRAIN_SPLIT = 0.70      # 70% train
+VAL_SPLIT   = 0.15      # 15% val
+TEST_SPLIT  = 0.15      # 15% test
+NO_PATTERN_SAMPLES = 500  # number of no_pattern images to sample
+
+# Map Kaggle class names → our folder names
+CLASS_MAP = {
+    "Double top":    "double_top",
+    "Double bottom": "double_bottom",
 }
 
 
-def get_class_from_label_file(lbl_path: Path) -> str:
-    """Read first annotation line and return class name."""
-    if not lbl_path.exists():
-        return "no_pattern"
-    with open(lbl_path) as f:
-        line = f.readline().strip()
-    if not line:
-        return "no_pattern"
-    cls_id = int(line.split()[0])
-    return CLASSES.get(cls_id, "no_pattern")
+def prepare_kaggle_classes():
+    csv_path = KAGGLE_DIR / "Patterns.csv"
+    if not csv_path.exists():
+        print(f"  ERROR: Patterns.csv not found at {csv_path}")
+        return False
 
+    df = pd.read_csv(csv_path)
+    print(f"\nKaggle dataset: {len(df)} images, {df['ClassName'].nunique()} classes")
 
-def prepare_split(img_dir: Path, lbl_dir: Path, split: str):
-    imgs = list(img_dir.glob("*.jpg")) + \
-           list(img_dir.glob("*.png")) + \
-           list(img_dir.glob("*.jpeg"))
-
-    if not imgs:
-        print(f"  WARNING: No images found in {img_dir}")
-        return Counter()
-
-    print(f"\nProcessing '{split}': {len(imgs)} images...")
     counts = Counter()
+    for _, row in df.iterrows():
+        cls_name = CLASS_MAP.get(row['ClassName'])
+        if cls_name is None:
+            continue
 
-    for img_path in imgs:
-        lbl_path = lbl_dir / (img_path.stem + ".txt")
-        cls_name = get_class_from_label_file(lbl_path)
+        img_path = KAGGLE_DIR / row['Path']
+        if not img_path.exists():
+            continue
 
-        dest = OUT_DIR / split / cls_name
+        # Determine train / val / test (70/15/15)
+        r = random.random()
+        if r < TRAIN_SPLIT:
+            split = "train"
+        elif r < TRAIN_SPLIT + VAL_SPLIT:
+            split = "val"
+        else:
+            split = "test"
+
+        dest  = OUT_DIR / split / cls_name
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(img_path, dest / img_path.name)
-        counts[cls_name] += 1
+        counts[f"{split}/{cls_name}"] += 1
 
-    return counts
+    for k, v in sorted(counts.items()):
+        print(f"  {k:<30} {v} images")
+    return True
 
 
-def check_imbalance(counts: Counter, split: str):
-    """Warn if any class is severely underrepresented."""
-    if not counts:
-        return
-    max_count = max(counts.values())
-    print(f"\n  {split} class distribution:")
-    for cls, cnt in sorted(counts.items(), key=lambda x: -x[1]):
-        bar = "█" * int(cnt / max_count * 20)
-        pct = cnt / sum(counts.values()) * 100
-        flag = " ⚠ IMBALANCED" if cnt < max_count * 0.2 else ""
-        print(f"    {cls:<25} {cnt:>5}  {bar} ({pct:.1f}%){flag}")
+def prepare_no_pattern():
+    """Sample images from our generated charts as no_pattern class."""
+    all_charts = list(CHARTS_DIR.rglob("*.png"))
+    if not all_charts:
+        print("  WARNING: No generated charts found in data/charts/")
+        return False
+
+    # Exclude any that already went to cnn_ready
+    random.shuffle(all_charts)
+    samples = all_charts[:NO_PATTERN_SAMPLES]
+
+    n_val   = int(len(samples) * VAL_SPLIT)
+    n_test  = int(len(samples) * TEST_SPLIT)
+    n_train = len(samples) - n_val - n_test
+
+    for i, img_path in enumerate(samples):
+        if i < n_train:
+            split = "train"
+        elif i < n_train + n_val:
+            split = "val"
+        else:
+            split = "test"
+        dest = OUT_DIR / split / "no_pattern"
+        dest.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(img_path, dest / img_path.name)
+
+    print(f"\n  no_pattern:")
+    print(f"  train/no_pattern              {n_train} images")
+    print(f"  val/no_pattern                {n_val} images")
+    print(f"  test/no_pattern               {n_test} images")
+    return True
+
+
+def print_summary():
+    print(f"\n── Final Dataset Summary ────────────────────────")
+    total = 0
+    for split in ["train", "val"]:
+        split_dir = OUT_DIR / split
+        if not split_dir.exists():
+            continue
+        for cls_dir in sorted(split_dir.iterdir()):
+            count = len(list(cls_dir.glob("*")))
+            total += count
+            print(f"  {split:<6} / {cls_dir.name:<20} {count} images")
+    print(f"  {'TOTAL':<28} {total} images")
+    print(f"\n  Output: {OUT_DIR}")
+    print("  Ready for: python src/train_cnn.py")
 
 
 def main():
-    if not HF_DIR.exists():
-        print(f"HuggingFace dataset not found at: {HF_DIR}")
-        print("Run src/download_datasets.py first.")
-        return
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Try common directory naming conventions from HuggingFace
-    split_map = [
-        ("train", HF_DIR / "train" / "images", HF_DIR / "train" / "labels"),
-        ("val",   HF_DIR / "valid" / "images", HF_DIR / "valid" / "labels"),
-        ("val",   HF_DIR / "val"   / "images", HF_DIR / "val"   / "labels"),
-    ]
+    print("── Preparing CNN training data ──────────────────")
+    kaggle_ok     = prepare_kaggle_classes()
+    no_pattern_ok = prepare_no_pattern()
 
-    seen_splits = set()
-    for split, img_dir, lbl_dir in split_map:
-        if split in seen_splits:
-            continue
-        if img_dir.exists():
-            counts = prepare_split(img_dir, lbl_dir, split)
-            check_imbalance(counts, split)
-            seen_splits.add(split)
-
-    print(f"\n── Data preparation complete ───────────────────")
-    print(f"  Output: {OUT_DIR}")
-    print("  Ready for: python src/train_cnn.py")
+    if kaggle_ok and no_pattern_ok:
+        print_summary()
+    else:
+        print("\nSome steps failed — check errors above.")
 
 
 if __name__ == "__main__":

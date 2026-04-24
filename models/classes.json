@@ -1,0 +1,13 @@
+{
+  "classes": [
+    "ascending_triangle",
+    "descending_triangle",
+    "double_bottom",
+    "double_top",
+    "head_and_shoulders_bottom",
+    "head_and_shoulders_top",
+    "no_pattern"
+  ],
+  "model": "efficientnet_v2_s",
+  "num_classes": 7
+}

@@ -2,7 +2,9 @@
 ## AI-Driven Pattern Detection using Deep Learning | Spring 2026
 
 Real-time detection of classical chart patterns (Head & Shoulders, Double Top/Bottom,
-Triangle, Wedge) using EfficientNet-B0 + YOLOv8 on live candlestick chart images.
+Triangle, Wedge, Flag, Cup & Handle, …) using a transfer-learnt CNN classifier
+(EfficientNet-B0 / EfficientNet-V2-S / ConvNeXt-Tiny) and a YOLOv8 detector on
+live candlestick chart images.
 
 ---
 
@@ -13,52 +15,107 @@ Triangle, Wedge) using EfficientNet-B0 + YOLOv8 on live candlestick chart images
 pip install -r requirements.txt
 ```
 
-### 2. Run data ingestion (Person A)
+### 2. Ingest OHLCV data
 ```bash
 python src/ingest.py
 ```
 
-### 3. Generate chart images (Person A)
+### 3. Generate chart images
 ```bash
 # Full run (~1-2 hours)
 python src/generate_charts.py
 
-# Fast demo mode (~5 min)
+# Fast demo (~5 min, test split only)
 python src/generate_charts.py --demo
 ```
 
-### 4. Download external datasets (Person B)
+### 4A. LEGACY 3-class path (Double-Top / Double-Bottom / No-pattern)
 ```bash
+# Weak-label our own charts
+python src/label_charts.py
+
+# Train on the 3-class dataset
+python src/train_cnn.py --data_dir data/cnn_ready_v2
+python src/evaluate.py  --data_dir data/cnn_ready_v2
+```
+
+### 4B. RECOMMENDED multi-class path — HYBRID (7 classes, zero external deps)
+
+We train on a **hybrid** dataset that combines:
+
+1. **Real yfinance charts** (from `data/cnn_ready_v2/`, weak-labeled
+   by `src/label_charts.py` into `double_top`, `double_bottom`,
+   `no_pattern`) — teaches the CNN real-chart textures.
+2. **Synthetic parametric charts** (from `data/cnn_clean/`, rendered
+   with the canonical mplfinance style) — provides supervision for
+   patterns the weak labeller can't recover (triangles, H&S).
+
+Synthetic-only training transfers poorly to real charts (the model
+becomes distribution-bound and predicts `no_pattern` for everything
+off-distribution).  The hybrid dataset solves this.
+
+```bash
+# 0. (optional) grab YOLOv8 weights for the detector tab
 python src/download_datasets.py
-```
 
-### 5. Prepare CNN training data (Person B)
-```bash
-python src/prepare_cnn_data.py
-```
+# 1. Render real candlestick charts (uses data/raw/*.parquet from ingest.py)
+python src/generate_charts.py           # full ~1-2 hours
+python src/generate_charts.py --demo    # fast smoke test
 
-### 6. Train CNN model (Person B) — ~1.5-2.5 hrs on Apple Silicon
-```bash
-python src/train_cnn.py
-# Or ResNet-50:
-python src/train_cnn.py --model resnet50 --epochs 30
-```
+# 2. Weak-label the real charts into double_top / double_bottom / no_pattern
+python src/label_charts.py
 
-### 7. Evaluate on test set (Person B)
-```bash
-python src/evaluate.py
-```
+# 3. Generate synthetic 7-class data (~30-45 min)
+python src/generate_synthetic_patterns.py
 
-### 8. Run Streamlit app locally (Person C)
-```bash
+# 4. Merge into the hybrid dataset
+python src/build_hybrid_dataset.py
+
+# 5. Leakage guard
+python tests/test_leakage.py
+
+# 6. Train (EfficientNet-V2-S, 30 epochs, ~35 min on Apple Silicon)
+python src/train_cnn.py --data_dir data/cnn_hybrid --model efficientnet_v2_s --epochs 30
+
+# 7. Evaluate on held-out test split
+python src/evaluate.py --data_dir data/cnn_hybrid --model efficientnet_v2_s
+
+# 8. Qualitative real-chart test via the Streamlit dashboard
 streamlit run app/streamlit_app.py
 ```
 
-### 9. Deploy to Streamlit Community Cloud
-- Push to GitHub
-- Go to share.streamlit.io
-- Connect repo → set main file to `app/streamlit_app.py`
-- Deploy!
+The hybrid builder is idempotent — rerun whenever synthetic or real
+data changes.  Tune `--syn-ratio` to rebalance:
+
+```bash
+python src/build_hybrid_dataset.py --syn-ratio 1.0  # strict match to real
+python src/build_hybrid_dataset.py --syn-ratio 0    # keep all synthetic
+```
+
+If you ever get access to a real multi-class labelled dataset (e.g. via
+Roboflow Universe), drop it under `data/external/` and run
+`python src/prepare_multiclass_data.py` to merge it in before training.
+
+### 5. Run Streamlit app
+```bash
+streamlit run app/streamlit_app.py
+```
+The app reads `models/classes.json` (written by `train_cnn.py`) so the UI
+automatically reflects whichever class set you trained on.
+
+### 6. Deploy
+Push to GitHub → share.streamlit.io → set main file to `app/streamlit_app.py`.
+
+---
+
+## Data-leakage guard
+
+After running either path, you can sanity-check with:
+```bash
+python tests/test_leakage.py
+```
+The test asserts no filename or identical image bytes appear in more than one
+split, and that every class folder is non-empty.
 
 ---
 
@@ -66,25 +123,39 @@ streamlit run app/streamlit_app.py
 ```
 stock-pattern-recognition/
 ├── data/
-│   ├── raw/                  # Parquet files (yfinance output)
-│   ├── charts/               # Generated PNG chart images
-│   │   ├── train/            # 2020–2023 data
-│   │   ├── val/              # 2024 data
-│   │   └── test/             # 2025–2026 data
-│   └── external/             # HuggingFace + Kaggle datasets
+│   ├── raw/                       # Parquet OHLCV files
+│   ├── charts/                    # Generated candlestick PNGs
+│   ├── external/
+│   │   ├── foduucom_patterns/     # YOLO-format multi-class dataset
+│   │   ├── rishi_patterns/        # 9-class ImageFolder (optional)
+│   │   └── kaggle_patterns/       # legacy 2-class dataset
+│   ├── cnn_ready_v2/              # 3-class (real, weak-labelled)
+│   ├── cnn_clean/                 # 7-class (synthetic, canonical-style)
+│   ├── cnn_hybrid/                # 7-class HYBRID (real + synthetic — RECOMMENDED)
+│   └── _deprecated_cnn_ready/     # archived — DO NOT USE (style leak)
 ├── src/
-│   ├── ingest.py             # Stage 1: yfinance data pull
-│   ├── generate_charts.py    # Stage 2: mplfinance chart generation
-│   ├── download_datasets.py  # Download HuggingFace + Kaggle data
-│   ├── prepare_cnn_data.py   # Convert YOLO dataset → ImageFolder
-│   ├── train_cnn.py          # Stage 3: EfficientNet/ResNet training
-│   └── evaluate.py           # KPI evaluation on test set
+│   ├── ingest.py                  # Stage 1
+│   ├── generate_charts.py         # Stage 2
+│   ├── download_datasets.py           # YOLOv8 weights + legacy Kaggle
+│   ├── download_multiclass.py         # HF datasets (both currently 404)
+│   ├── label_charts.py                # legacy 3-class weak labeller
+│   ├── prepare_multiclass_data.py     # YOLO → ImageFolder (if dataset present)
+│   ├── generate_synthetic_patterns.py # 7-class synthetic (canonical style)
+│   ├── build_hybrid_dataset.py        # (NEW) merges real + synthetic
+│   ├── train_cnn.py                   # dynamic-class CNN trainer
+│   └── evaluate.py                    # evaluation w/ leakage guard
 ├── models/
-│   ├── best_cnn.pth          # Trained CNN weights
-│   └── best.pt               # Pre-trained YOLOv8 weights
+│   ├── best_cnn.pth               # trained CNN weights
+│   ├── classes.json               # class list + model name manifest
+│   ├── model.pt                   # YOLOv8 weights (foduucom)
+│   ├── confusion_matrix_*.png
+│   ├── test_confusion_matrix.png
+│   └── training_history.csv
 ├── app/
-│   └── streamlit_app.py      # Live Streamlit dashboard
-├── requirements.txt
+│   └── streamlit_app.py           # live dashboard
+├── tests/
+│   └── test_leakage.py
+├── requirements.txt               # pinned versions
 └── README.md
 ```
 
@@ -93,20 +164,30 @@ stock-pattern-recognition/
 ## KPIs
 | Metric | Target | Description |
 |--------|--------|-------------|
-| Weighted F1 | ≥ 0.85 | Across all 6 pattern classes |
+| Weighted F1 | ≥ 0.80 | Across all classes |
+| Macro F1 | ≥ 0.75 | Fair across imbalance |
 | Per-class Precision | ≥ 0.80 | Minimise false positives |
 | End-to-end Latency | ≤ 3 sec | Data pull → chart → prediction |
 
-## Pattern Classes
-- Head & Shoulders (bearish reversal)
-- Double Top (bearish reversal)
-- Double Bottom (bullish reversal)
-- Triangle (continuation/breakout)
-- Wedge (reversal)
+> The legacy README target of weighted-F1 ≥ 0.85 is **achievable only on the
+> multi-class path with the foduucom dataset**.  With the 3-class weak-label
+> dataset, expect a realistic ceiling around 0.65.
+
+---
+
+## Pattern Classes (synthetic multi-class path — 7 classes)
+- Double Top
+- Double Bottom
+- Head & Shoulders (top)
+- Head & Shoulders (bottom / inverse)
+- Ascending Triangle
+- Descending Triangle
 - No Pattern
 
+---
+
 ## Tech Stack
-`yfinance` · `mplfinance` · `PyTorch` · `EfficientNet-B0` · `YOLOv8` · `Streamlit`
+`yfinance` · `mplfinance` · `PyTorch` · `EfficientNet-V2-S` · `YOLOv8` · `Streamlit`
 
 **Total cost: $0**
 

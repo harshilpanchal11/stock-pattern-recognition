@@ -8,3 +8,9 @@ __pycache__/
 *.pyc
 .env
 .ipynb_checkpoints/
+data/cnn_hybrid/
+data/cnn_clean/
+data/cnn_ready_v2/
+data/_deprecated_cnn_ready/
+*.pyc
+.cache/
