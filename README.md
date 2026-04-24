@@ -1,5 +1,4 @@
-# Stock Chart Pattern Recognition — Group 3
-## AI-Driven Pattern Detection using Deep Learning | Spring 2026
+# Stock Chart Pattern Recognition
 
 Real-time detection of classical chart patterns (Head & Shoulders, Double Top/Bottom,
 Triangle, Wedge, Flag, Cup & Handle, …) using a transfer-learnt CNN classifier
